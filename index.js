@@ -4,12 +4,12 @@ const axios   = require('axios');
 const fs      = require('fs');
 const path    = require('path');
 
-// Osiguraj da radimo iz direktorijuma gde je ovaj fajl
+// Radi iz direktorijuma gde je index.js
 process.chdir(path.dirname(__filename));
 
 const app = express();
 
-// CORS i parsiranje JSON tela
+// CORS i JSON parsing
 app.use((req, res, next) => {
   res.set('Access-Control-Allow-Origin',  '*');
   res.set('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -26,9 +26,9 @@ const configFiles = fs.existsSync(CONFIG_DIR)
   : [];
 const configNames = configFiles.map(f => f.replace(/\.json$/, ''));
 
-// Ovde čuvamo po-config listu baza i generisane manifest-e
-const configs          = {}; // configs[ime] = [ { base, manifest }, ... ]
-const wrapperManifests = {}; // wrapperManifests[ime] = spojen manifest
+// Čuvamo po‑config: liste baza i wrapper manifest-e
+const configs          = {};
+const wrapperManifests = {};
 
 async function initConfig(name) {
   const file = path.join(CONFIG_DIR, name + '.json');
@@ -40,16 +40,15 @@ async function initConfig(name) {
     return;
   }
 
-  // Normalizuj i ukloni duplikate iz TARGET_ADDON_BASES
   const bases = Array.from(new Set(
     (cfg.TARGET_ADDON_BASES || [])
       .map(u => u.trim()
-                 .replace(/\/manifest\.json$/i,'')
-                 .replace(/\/+$/,''))
+                 .replace(/\/manifest\.json$/i, '')
+                 .replace(/\/+$/, ''))
       .filter(Boolean)
   ));
 
-  // Fetch-uj svaki manifest
+  // Fetch baza manifest-e
   const results = await Promise.allSettled(
     bases.map(b => axios.get(`${b}/manifest.json`))
   );
@@ -69,7 +68,7 @@ async function initConfig(name) {
     return;
   }
 
-  // Pravi "wrapper" manifest za ovaj config
+  // Složimo wrapper manifest
   const manifests = baseManifests.map(bm => bm.manifest);
   const wrapper = {
     manifestVersion: '4',
@@ -78,10 +77,10 @@ async function initConfig(name) {
     name:            `Stremio Proxy Wrapper (${name})`,
     description:     'Proxy svih vaših Stremio addon-a',
     resources:       ['catalog','meta','stream','subtitles'],
-    // Obuhvati sve tipove iz baza (uključujući "channel")
-    types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
+    // Ubaci sve tipove iz baza (uključujući "channel")
+    types:           Array.from(new Set(manifests.flatMap(m => m.types || []))),
     idPrefixes:      Array.from(new Set(manifests.flatMap(m => m.idPrefixes || []))),
-    // Obuhvati sve kataloge iz baza (uključujući one gde je type="channel")
+    // Ubaci sve kataloge iz baza (i one sa type="channel")
     catalogs:        manifests.flatMap(m => m.catalogs || []),
     logo:            manifests[0].logo || '',
     icon:            manifests[0].icon || ''
@@ -91,7 +90,7 @@ async function initConfig(name) {
   console.log(`✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga`);
 }
 
-// Inicijalizuj sve configuracije
+// Init svih config-a
 Promise.all(configNames.map(initConfig))
   .then(() => console.log(`🎉 Svi config-i spremni: ${configNames.join(', ')}`))
   .catch(err => console.error('❌ Greška pri inicijalizaciji:', err));
@@ -103,39 +102,38 @@ app.get('/:config/manifest.json', (req, res) => {
   res.json(w);
 });
 
-// --- POST handleri za katalog, meta, stream i subtitles ---------------------
+// --- POST handleri za catalog, meta, stream i subtitles ---------------------
 function makeHandler(key, endpoint) {
   return async (req, res) => {
-    const name = req.params.config;
+    const name  = req.params.config;
     const bases = configs[name] || [];
     if (!bases.length) return res.json({ [key]: [] });
 
-    // za katalog filtriraj po id-u kataloga
+    // **Za channel meta zahteve ne radimo nikakvo filtriranje po katalog-ID**
     let targets = bases;
-    if (key === 'metas') {
+    if (key === 'metas' && req.body.type !== 'channel') {
       const id = req.body.id;
       targets = bases.filter(bm =>
         (bm.manifest.catalogs || []).some(c => c.id === id)
       );
     }
 
-    const results = await Promise.allSettled(
-      targets.map(bm =>
-        axios.post(`${bm.base}/${endpoint}`, req.body, {
-          headers: { 'Content-Type':'application/json' }
-        })
-      )
-    );
-
-    // spoji rezultate
     const combined = [];
-    results.forEach(r => {
-      if (r.status === 'fulfilled' &&
-          r.value.data &&
-          Array.isArray(r.value.data[key])) {
-        combined.push(...r.value.data[key]);
+    await Promise.all(targets.map(async bm => {
+      try {
+        const r = await axios.post(
+          `${bm.base}/${endpoint}`,
+          req.body,
+          { headers: { 'Content-Type':'application/json' }}
+        );
+        if (r.data && Array.isArray(r.data[key])) {
+          combined.push(...r.data[key]);
+        }
+      } catch (e) {
+        console.warn(`⚠️  [${name}] ${endpoint} za ${bm.base} nije uspeo:`, e.message);
       }
-    });
+    }));
+
     res.json({ [key]: combined });
   };
 }
@@ -147,7 +145,7 @@ app.post('/:config/subtitles', makeHandler('subtitles', 'subtitles'));
 
 // --- GET fallback za v3 kompatibilnost -------------------------------------
 app.get('/:config/:path(*)', async (req, res) => {
-  const name = req.params.config;
+  const name  = req.params.config;
   const bases = configs[name] || [];
   if (!bases.length) return res.status(404).json({ error: 'Config nije pronađen' });
 
@@ -158,27 +156,25 @@ app.get('/:config/:path(*)', async (req, res) => {
   else if (route.startsWith('subtitles/'))key = 'subtitles';
   else                                    return res.status(404).json({ error: 'Nije pronađeno' });
 
-  // za katalog GET filtriraj po id-u
   let targets = bases;
   if (key === 'metas') {
-    const parts = route.split('/');
-    const id    = parts[2]?.replace('.json','');
+    // isto: ignorisati filtriranje za channel
+    const id = route.split('/')[2].replace('.json','');
     targets = bases.filter(bm =>
       (bm.manifest.catalogs || []).some(c => c.id === id)
     );
   }
 
-  const results = await Promise.allSettled(
-    targets.map(bm => axios.get(`${bm.base}/${route}`))
-  );
   const combined = [];
-  results.forEach(r => {
-    if (r.status === 'fulfilled' &&
-        r.value.data &&
-        Array.isArray(r.value.data[key])) {
-      combined.push(...r.value.data[key]);
-    }
-  });
+  await Promise.all(targets.map(async bm => {
+    try {
+      const r = await axios.get(`${bm.base}/${route}`);
+      if (r.data && Array.isArray(r.data[key])) {
+        combined.push(...r.data[key]);
+      }
+    } catch {}
+  }));
+
   res.json({ [key]: combined });
 });
 
