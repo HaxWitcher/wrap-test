@@ -26,9 +26,9 @@ const configFiles = fs.existsSync(CONFIG_DIR)
   : [];
 const configNames = configFiles.map(f => f.replace(/\.json$/, ''));
 
-// Ovde čuvamo po-config listu baza i generisane manifest-e
-const configs          = {}; // configs[ime] = [ { base, manifest }, ... ]
-const wrapperManifests = {}; // wrapperManifests[ime] = spojen manifest
+// Po-config lista baza i generisani manifesti
+const configs          = {}; // configs[name] = [ { base, manifest }, ... ]
+const wrapperManifests = {}; // wrapperManifests[name] = spojeni manifest
 
 async function initConfig(name) {
   const file = path.join(CONFIG_DIR, name + '.json');
@@ -44,7 +44,7 @@ async function initConfig(name) {
   const bases = Array.from(new Set(
     (cfg.TARGET_ADDON_BASES || [])
       .map(u => u.trim()
-                 .replace(/\/manifest\\.json$/i,'')
+                 .replace(/\/manifest\.json$/i,'')
                  .replace(/\/+$/,''))
       .filter(Boolean)
   ));
@@ -69,7 +69,7 @@ async function initConfig(name) {
     return;
   }
 
-  // Pravi "wrapper" manifest za ovaj config, uz Channels podršku
+  // Pravi "wrapper" manifest sa Channels podrškom
   const manifests = baseManifests.map(bm => bm.manifest);
   const wrapper = {
     manifestVersion: '4',
@@ -80,16 +80,18 @@ async function initConfig(name) {
     resources:       ['catalog','meta','stream','subtitles','channels'],
     types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
     idPrefixes:      Array.from(new Set(manifests.flatMap(m => m.idPrefixes || []))),
-    catalogs:        manifests.flatMap(m => m.catalogs || []),
+    catalogs:        manifests.flatMap(m => m.catalogs  || []),
+    channels:        manifests.flatMap(m => (m.catalogs || []).filter(c => c.type === 'channel')),
     logo:            manifests[0].logo || '',
     icon:            manifests[0].icon || ''
   };
 
   wrapperManifests[name] = wrapper;
-  console.log(`✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga`);
+  console.log(`✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ` +
+              `${wrapper.catalogs.length} kataloga, ${wrapper.channels.length} kanala`);
 }
 
-// Inicijalizuj sve configuracije
+// Inicijalizuj sve konfiguracije
 Promise.all(configNames.map(initConfig))
   .then(() => console.log(`🎉 Svi config-i spremni: ${configNames.join(', ')}`))
   .catch(err => console.error('❌ Greška pri inicijalizaciji:', err));
@@ -135,7 +137,6 @@ function makeHandler(key, endpoint) {
     const bases = configs[name] || [];
     if (!bases.length) return res.json({ [key]: [] });
 
-    // za katalog filtriraj po id-u kataloga
     let targets = bases;
     if (key === 'metas') {
       const id = req.body.id;
@@ -182,7 +183,6 @@ app.get('/:config/:path(*)', async (req, res) => {
   else if (route.startsWith('subtitles/'))key = 'subtitles';
   else return res.status(404).json({ error: 'Nije pronađeno' });
 
-  // za katalog GET filtriraj po id-u
   let targets = bases;
   if (key === 'metas') {
     const parts = route.split('/');
