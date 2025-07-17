@@ -193,5 +193,6 @@ app.get('/:config/:path(*)', async (req, res) => {
   }
   res.json({ [key]: combined });
 });
-// Start servera
-const PORT =
+// Startovanje servera
+const PORT = process.env.PORT || 7000;
+app.listen(PORT, () => console.log(`🔌 Slušam na portu :${PORT}`));
