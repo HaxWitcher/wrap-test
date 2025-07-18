@@ -27,8 +27,8 @@ const configFiles = fs.existsSync(CONFIG_DIR)
 const configNames = configFiles.map(f => f.replace(/\.json$/, ''));
 
 // Ovde čuvamo po-config listu baza i generisane manifest-e
-const configs          = {}; // configs[name] = [ { base, manifest }, ... ]
-const wrapperManifests = {}; // wrapperManifests[name] = spojeni manifest
+const configs          = {}; // configs[ime] = [ { base, manifest }, ... ]
+const wrapperManifests = {}; // wrapperManifests[ime] = spojen manifest
 
 async function initConfig(name) {
   const file = path.join(CONFIG_DIR, name + '.json');
@@ -36,7 +36,7 @@ async function initConfig(name) {
   try {
     cfg = JSON.parse(fs.readFileSync(file));
   } catch (e) {
-    console.error(`❌ Ne mogu da učitam ${file}:`, e.message);
+    console.error(❌ Ne mogu da učitam ${file}:, e.message);
     return;
   }
 
@@ -51,7 +51,7 @@ async function initConfig(name) {
 
   // Fetch-uj svaki manifest
   const results = await Promise.allSettled(
-    bases.map(b => axios.get(`${b}/manifest.json`))
+    bases.map(b => axios.get(${b}/manifest.json))
   );
 
   const baseManifests = [];
@@ -59,13 +59,13 @@ async function initConfig(name) {
     if (r.status === 'fulfilled' && r.value.data) {
       baseManifests.push({ base: bases[i], manifest: r.value.data });
     } else {
-      console.warn(`⚠️  [${name}] fetch manifest-a za ${bases[i]} nije uspeo`);
+      console.warn(⚠️  [${name}] fetch manifest-a za ${bases[i]} nije uspeo);
     }
   });
 
   configs[name] = baseManifests;
   if (!baseManifests.length) {
-    console.error(`❌ [${name}] nema važećih manifest-a`);
+    console.error(❌ [${name}] nema važećih manifest-a);
     return;
   }
 
@@ -73,11 +73,11 @@ async function initConfig(name) {
   const manifests = baseManifests.map(bm => bm.manifest);
   const wrapper = {
     manifestVersion: '4',
-    id:              `stremio-proxy-wrapper-${name}`,
+    id:              stremio-proxy-wrapper-${name},
     version:         '1.0.0',
-    name:            `Stremio Proxy Wrapper (${name})`,
+    name:            Stremio Proxy Wrapper (${name}),
     description:     'Proxy svih vaših Stremio addon-a',
-    resources:       ['catalog','meta','stream','subtitles','channels'],
+    resources:       ['catalog','meta','stream','subtitles'],
     types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
     idPrefixes:      Array.from(new Set(manifests.flatMap(m => m.idPrefixes || []))),
     catalogs:        manifests.flatMap(m => m.catalogs || []),
@@ -86,12 +86,12 @@ async function initConfig(name) {
   };
 
   wrapperManifests[name] = wrapper;
-  console.log(`✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga`);
+  console.log(✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga);
 }
 
 // Inicijalizuj sve configuracije
 Promise.all(configNames.map(initConfig))
-  .then(() => console.log(`🎉 Svi config-i spremni: ${configNames.join(', ')}`))
+  .then(() => console.log(🎉 Svi config-i spremni: ${configNames.join(', ')}))
   .catch(err => console.error('❌ Greška pri inicijalizaciji:', err));
 
 // --- Ruta za manifest -------------------------------------------------------
@@ -108,27 +108,18 @@ function makeHandler(key, endpoint) {
     const bases = configs[name] || [];
     if (!bases.length) return res.json({ [key]: [] });
 
-    // inicijalno svi base
-    let targets = bases;
-
     // za katalog filtriraj po id-u kataloga samo ako nije channel
+    let targets = bases;
     if (key === 'metas' && req.body.type !== 'channel') {
       const id = req.body.id;
-      targets = targets.filter(bm =>
+      targets = bases.filter(bm =>
         (bm.manifest.catalogs || []).some(c => c.id === id)
-      );
-    }
-
-    // --- Dodato: kad je key 'streams' i type 'channel', pozovi samo channel-adone
-    if (key === 'streams' && req.body.type === 'channel') {
-      targets = targets.filter(bm =>
-        Array.isArray(bm.manifest.types) && bm.manifest.types.includes('channel')
       );
     }
 
     const results = await Promise.allSettled(
       targets.map(bm =>
-        axios.post(`${bm.base}/${endpoint}`, req.body, {
+        axios.post(${bm.base}/${endpoint}, req.body, {
           headers: { 'Content-Type':'application/json' }
         })
       )
@@ -160,33 +151,35 @@ app.get('/:config/:path(*)', async (req, res) => {
 
   const route = req.params.path;
   let key;
-  if (route.startsWith('catalog/'))      key = 'metas';
+  if (route.startsWith('catalog/'))     key = 'metas';
   else if (route.startsWith('stream/'))  key = 'streams';
   else if (route.startsWith('subtitles/')) key = 'subtitles';
-  else if (route.startsWith('channels/'))  key = 'channels';
   else return res.status(404).json({ error: 'Nije pronađeno' });
 
+  // za katalog GET filtriraj po id-u
   let targets = bases;
-  if (key === 'metas' || key === 'channels') {
-    const id = route.split('/')[1]?.replace('.json','');
-    targets = targets.filter(bm =>
+  if (key === 'metas') {
+    const parts = route.split('/');
+    const id    = parts[2]?.replace('.json','');
+    targets = bases.filter(bm =>
       (bm.manifest.catalogs || []).some(c => c.id === id)
     );
   }
 
+  const results = await Promise.allSettled(
+    targets.map(bm => axios.get(${bm.base}/${route}))
+  );
   const combined = [];
-  await Promise.all(targets.map(async bm => {
-    try {
-      const r = await axios.get(`${bm.base}/${route}`);
-      if (r.data && Array.isArray(r.data[key])) {
-        combined.push(...r.data[key]);
-      }
-    } catch {};
-  }));
-
+  results.forEach(r => {
+    if (r.status === 'fulfilled' &&
+        r.value.data &&
+        Array.isArray(r.value.data[key])) {
+      combined.push(...r.value.data[key]);
+    }
+  });
   res.json({ [key]: combined });
 });
 
 // Startovanje servera
 const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => console.log(`🔌 Slušam na portu :${PORT}`));
+app.listen(PORT, () => console.log(🔌 Slušam na portu :${PORT}));
