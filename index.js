@@ -77,7 +77,8 @@ async function initConfig(name) {
     version:         '1.0.0',
     name:            `Stremio Proxy Wrapper (${name})`,
     description:     'Proxy svih vaših Stremio addon-a',
-    resources:       ['catalog','meta','stream','subtitles'],  // NIŠTA OVDE NISAM DIRAO
+    // *** DODATO samo ovo jedno:
+    resources:       ['catalog','meta','stream','subtitles','channels'],
     types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
     idPrefixes:      Array.from(new Set(manifests.flatMap(m => m.idPrefixes || []))),
     catalogs:        manifests.flatMap(m => m.catalogs || []),
@@ -145,18 +146,18 @@ app.post('/:config/subtitles', makeHandler('subtitles', 'subtitles'));
 
 // --- JEDINI DODATAK: Channels katalog proxy -------------------------------
 app.post('/:config/channels', async (req, res) => {
-  const name = req.params.config;
+  const name  = req.params.config;
   const bases = configs[name] || [];
   if (!bases.length) return res.json({ channels: [] });
 
   const combined = [];
   await Promise.all(bases.map(async bm => {
     try {
-      // proxy /catalog sa istim body za channels
+      // proxy /catalog za channels
       const r = await axios.post(
         `${bm.base}/catalog`,
         req.body,
-        { headers: { 'Content-Type':'application/json' } }
+        { headers: { 'Content-Type':'application/json' }}
       );
       if (r.data && Array.isArray(r.data.metas)) {
         combined.push(...r.data.metas);
