@@ -78,7 +78,7 @@ async function initConfig(name) {
     name:            `Stremio Proxy Wrapper (${name})`,
     description:     'Proxy svih vaših Stremio addon-a',
     // Dodata podrška za channels
-    resources: [ $1, 'channels' ],
+    resources: ['catalog','meta','stream','subtitles','channels'],
     types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
     idPrefixes:      Array.from(new Set(manifests.flatMap(m => m.idPrefixes || []))),
     catalogs:        manifests.flatMap(m => m.catalogs || []),
