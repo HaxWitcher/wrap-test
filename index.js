@@ -141,70 +141,35 @@ function makeHandler(key, endpoint) {
 
 app.post('/:config/catalog',   makeHandler('metas',     'catalog'));
 app.post('/:config/meta',      makeHandler('metas',     'meta'));
-app.post('/:config/stream',    makeHandler('streams',   'stream'));
-app.post('/:config/subtitles', makeHandler('subtitles', 'subtitles'));
-
-// --- Channels handler ------------------------------------------------------
-app.post('/:config/channels', async (req, res) => {
-  const name = req.params.config;
-  const bases = configs[name] || [];
-  if (!bases.length) return res.json({ channels: [] });
-
-  const combined = [];
-  await Promise.all(bases.map(async bm => {
-    try {
-      const r = await axios.post(
-        `${bm.base}/catalog`,
-        req.body,
-        { headers: { 'Content-Type':'application/json' }}
-      );
-      if (r.data && Array.isArray(r.data.metas)) {
-        combined.push(...r.data.metas);
+// --- Override stream handler for Channels - ADDITIVE ONLY ===
+app.post('/:config/stream', async (req, res, next) => {
+  // Ako je zahtev za kanal, pozovi kanal addon direktno
+  if (req.body.type === 'channel') {
+    const name = req.params.config;
+    const bases = configs[name] || [];
+    for (const bm of bases) {
+      // za svaki bazni addon proveri da li u manifest.catalogs postoji tip channel
+      if (Array.isArray(bm.manifest.catalogs) && bm.manifest.catalogs.some(c => c.type === 'channel')) {
+        try {
+          const r = await axios.post(
+            `${bm.base}/stream`,
+            req.body,
+            { headers: {'Content-Type':'application/json'} }
+          );
+          if (r.data && Array.isArray(r.data.streams) && r.data.streams.length) {
+            return res.json({ streams: r.data.streams });
+          }
+        } catch (e) {
+          // ignorisi gresku i probaj sledeci addon
+        }
       }
-    } catch (_) {}
-  }));
-
-  res.json({ channels: combined });
-});
-
-// --- GET fallback za v3 kompatibilnost -------------------------------------
-app.get('/:config/:path(*)', async (req, res) => {
-  const name = req.params.config;
-  const bases = configs[name] || [];
-  if (!bases.length) return res.status(404).json({ error: 'Config nije pronađen' });
-
-  const route = req.params.path;
-  let key;
-  if (route.startsWith('catalog/'))      key = 'metas';
-  else if (route.startsWith('stream/'))   key = 'streams';
-  else if (route.startsWith('subtitles/'))key = 'subtitles';
-  else if (route.startsWith('channels/')) key = 'channels';
-  else return res.status(404).json({ error: 'Nije pronađeno' });
-
-  // za katalog GET filtriraj po id-u
-  let targets = bases;
-  if (key === 'metas' || key === 'channels') {
-    const id = route.split('/')[1]?.replace('.json','');
-    targets = bases.filter(bm =>
-      (bm.manifest.catalogs || []).some(c => c.id === id)
-    );
-  }
-
-  const results = await Promise.allSettled(
-    targets.map(bm => axios.get(`${bm.base}/${route}`))
-  );
-  const combined = [];
-  results.forEach(r => {
-    if (r.status === 'fulfilled' &&
-        r.value.data &&
-        Array.isArray(r.value.data[key])) {
-      combined.push(...r.value.data[key]);
     }
-  });
-
-  res.json({ [key]: combined });
+    // ako nijedan nije vratio, isprazni
+    return res.json({ streams: [] });
+  }
+  // nije kanal, prosledi postojećem handleru
+  return next();
 });
 
-// Startovanje servera
-const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => console.log(`🔌 Slušam na portu :${PORT}`));
+// Originalni handler za ostale tipove (films, series itd.)
+app.post('/:config/stream',    makeHandler('streams',   'stream'));
