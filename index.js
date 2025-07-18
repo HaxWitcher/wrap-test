@@ -36,7 +36,7 @@ async function initConfig(name) {
   try {
     cfg = JSON.parse(fs.readFileSync(file));
   } catch (e) {
-    console.error(❌ Ne mogu da učitam ${file}:, e.message);
+    console.error(`❌ Ne mogu da učitam ${file}:`, e.message);
     return;
   }
 
@@ -51,7 +51,7 @@ async function initConfig(name) {
 
   // Fetch-uj svaki manifest
   const results = await Promise.allSettled(
-    bases.map(b => axios.get(${b}/manifest.json))
+    bases.map(b => axios.get(`${b}/manifest.json`))
   );
 
   const baseManifests = [];
@@ -59,13 +59,13 @@ async function initConfig(name) {
     if (r.status === 'fulfilled' && r.value.data) {
       baseManifests.push({ base: bases[i], manifest: r.value.data });
     } else {
-      console.warn(⚠️  [${name}] fetch manifest-a za ${bases[i]} nije uspeo);
+      console.warn(`⚠️  [${name}] fetch manifest-a za ${bases[i]} nije uspeo`);
     }
   });
 
   configs[name] = baseManifests;
   if (!baseManifests.length) {
-    console.error(❌ [${name}] nema važećih manifest-a);
+    console.error(`❌ [${name}] nema važećih manifest-a`);
     return;
   }
 
@@ -73,9 +73,9 @@ async function initConfig(name) {
   const manifests = baseManifests.map(bm => bm.manifest);
   const wrapper = {
     manifestVersion: '4',
-    id:              stremio-proxy-wrapper-${name},
+    id:              `stremio-proxy-wrapper-${name}`,
     version:         '1.0.0',
-    name:            Stremio Proxy Wrapper (${name}),
+    name:            `Stremio Proxy Wrapper (${name})`,
     description:     'Proxy svih vaših Stremio addon-a',
     resources:       ['catalog','meta','stream','subtitles'],
     types:           Array.from(new Set(manifests.flatMap(m => m.types  || []))),
@@ -86,12 +86,12 @@ async function initConfig(name) {
   };
 
   wrapperManifests[name] = wrapper;
-  console.log(✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga);
+  console.log(`✅ [${name}] inicijalizovano: ${baseManifests.length} baza, ${wrapper.catalogs.length} kataloga`);
 }
 
 // Inicijalizuj sve configuracije
 Promise.all(configNames.map(initConfig))
-  .then(() => console.log(🎉 Svi config-i spremni: ${configNames.join(', ')}))
+  .then(() => console.log(`🎉 Svi config-i spremni: ${configNames.join(', ')}`))
   .catch(err => console.error('❌ Greška pri inicijalizaciji:', err));
 
 // --- Ruta za manifest -------------------------------------------------------
@@ -119,7 +119,7 @@ function makeHandler(key, endpoint) {
 
     const results = await Promise.allSettled(
       targets.map(bm =>
-        axios.post(${bm.base}/${endpoint}, req.body, {
+        axios.post(`${bm.base}/${endpoint}`, req.body, {
           headers: { 'Content-Type':'application/json' }
         })
       )
@@ -167,7 +167,7 @@ app.get('/:config/:path(*)', async (req, res) => {
   }
 
   const results = await Promise.allSettled(
-    targets.map(bm => axios.get(${bm.base}/${route}))
+    targets.map(bm => axios.get(`${bm.base}/${route}`))
   );
   const combined = [];
   results.forEach(r => {
@@ -182,4 +182,4 @@ app.get('/:config/:path(*)', async (req, res) => {
 
 // Startovanje servera
 const PORT = process.env.PORT || 7000;
-app.listen(PORT, () => console.log(🔌 Slušam na portu :${PORT}));
+app.listen(PORT, () => console.log(`🔌 Slušam na portu :${PORT}`));
